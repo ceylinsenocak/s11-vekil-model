@@ -292,10 +292,25 @@ st.caption("Soldan anten ölçülerini ayarla; rezonans frekansı, S11 ve S11 e�
 st.markdown("""<style>
 @media print {
   @page { size: A4; margin: 12mm; }
-  [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"],
-  [data-testid="stSidebarCollapsedControl"], [data-testid="stDownloadButton"], .stButton, footer { display: none !important; }
+  :root { color-scheme: light !important; }
+  /* koyu temadan kalan her arka plani beyaz yap, yukseklik sinirini kaldir (ikinci bos sayfayi onler) */
+  html, body, #root, .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"],
+  section.main, .main, .block-container, [data-testid="stVerticalBlock"] {
+    background: #ffffff !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .block-container { padding: 0 !important; max-width: 100% !important; }
-  [data-testid="stAppViewContainer"], .stApp { background: white !important; }
+  /* yazdirmada gereksiz parcalar */
+  [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stSidebarCollapsedControl"],
+  [data-testid="stDownloadButton"], [data-testid="stElementToolbar"], [data-testid="stSelectbox"], [data-testid="stExpander"], .stButton, footer { display: none !important; }
+  /* yazilar koyu */
+  .stApp *, .stApp p, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp label { color: #1a1a1a !important; }
+  [data-testid="stMetricDelta"] { background: #eeeeee !important; }
+  [data-testid="stAlert"] { background: #eef6ee !important; border: 1px solid #9bc59b !important; }
+  [data-testid="stAlert"] * { color: #14532d !important; }
+  table { width: 100% !important; border-collapse: collapse !important; font-size: 10px !important; }
+  table, th, td, thead, tbody, tr { background: #ffffff !important; color: #1a1a1a !important; border: 1px solid #cccccc !important; }
+  th { background: #f0f0f0 !important; }
+  hr { border-color: #cccccc !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 </style>""", unsafe_allow_html=True)
 
@@ -350,7 +365,7 @@ if st.button("Aday ara"):
     st.session_state["adaylar"] = aday_ara(geo, olcekleyici, X, model_f, model_s)
 if "adaylar" in st.session_state:
     t = st.session_state["adaylar"]
-    st.dataframe(t.drop(columns="puan").round(2).rename(index=lambda i: i + 1))  # numaralar 1'den başlasın
+    st.table(t.drop(columns="puan").rename(index=lambda i: i + 1).style.format("{:.2f}"))  # numaralar 1'den başlasın
     sec = st.selectbox("Bir adayı yukarıda incelemek için seç", range(1, len(t) + 1))
     st.button("Seçilen adayı yükle", on_click=adayi_yukle, args=(t.iloc[sec - 1],))
 
