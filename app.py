@@ -12,7 +12,9 @@ Dosya yapisi (yukaridan asagiya okunur, her bolum bir adimdir):
     BOLUM 5  Aday arama ve "siradaki simulasyon" onerisi
     BOLUM 6  Arayuz (kenar cubukta olculer, ana sayfada tahmin ve aday onerisi)
 """
+import io
 import warnings
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -194,6 +196,74 @@ def siradaki_simulasyon(geo, olcekleyici, X, model_f, model_s, adet=3000, sapma=
 
 
 # ----------------------------------------------------------------------------
+# Grafik ve PDF raporu (ekrandaki ve indirilen rapordaki grafik ayni fonksiyondan gelir)
+# ----------------------------------------------------------------------------
+def egri_grafigi(r, egri_ref, boyut=(8, 4.2), ax=None):
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=boyut)
+    ax.plot(FREKANS_IZGARASI, egri_ref, color="#9aa3b2", lw=1.2, label="En yakın bilinen anten (CST, referans)")
+    ax.plot(FREKANS_IZGARASI, r["egri"], color="#2e5597", lw=2, label="Tahmin edilen S11 eğrisi")
+    ax.fill_between(FREKANS_IZGARASI, r["egri"], HEDEF_S11, where=r["egri"] < HEDEF_S11,
+                    color="#2e5597", alpha=0.15, label="−10 dB altı bölge")
+    ax.axvline(HEDEF_FREKANS, color="green", ls="--", lw=1, label="2.4 GHz")
+    ax.axhline(HEDEF_S11, color="orange", ls="--", lw=1, label="−10 dB")
+    ax.scatter([r["f"]], [r["s"]], color="red", zorder=5, label="Çukur tahmini")
+    alt_sinir = min(-30, r["egri"].min() - 2, egri_ref.min() - 2)
+    ax.set(xlabel="Frekans (GHz)", ylabel="S11 (dB)", ylim=(alt_sinir, 1), xlim=(2.1, 2.7))
+    ax.grid(alpha=0.25)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=3, fontsize=8, frameon=False)
+    if fig is not None:
+        fig.tight_layout()
+    return fig
+
+
+def rapor_pdf(olculer, r, egri_ref, guven_metni, komsu_tipik):
+    """Tek sayfalik A4 PDF: olculer, tahminler, hedef kontrolu, S11 egrisi. Ek kutuphane gerekmez."""
+    fig = plt.figure(figsize=(8.27, 11.69))
+    fig.text(0.08, 0.95, "2.4 GHz slotlu patch anten: S11 tahmin raporu", fontsize=16, weight="bold")
+    fig.text(0.08, 0.925, f"Oluşturulma: {datetime.now():%d.%m.%Y %H:%M}   |   Yöntem: Gaussian Process vekil model "
+             "(53 CST simülasyonu)", fontsize=8.5, color="#555555")
+
+    ax_t = fig.add_axes([0.08, 0.70, 0.40, 0.20]); ax_t.axis("off")
+    ax_t.set_title("Girdi: anten ölçüleri", loc="left", fontsize=11, weight="bold")
+    satirlar = [[ADLAR[k], f"{v:.1f} mm"] for k, v in zip(OZELLIKLER, olculer)]
+    tb = ax_t.table(cellText=satirlar, colWidths=[0.65, 0.35], loc="upper left", cellLoc="left")
+    tb.auto_set_font_size(False); tb.set_fontsize(9); tb.scale(1, 1.5)
+    for h in tb.get_celld().values():
+        h.set_edgecolor("#cccccc")
+
+    ax_s = fig.add_axes([0.54, 0.70, 0.40, 0.20]); ax_s.axis("off")
+    ax_s.set_title("Tahmin", loc="left", fontsize=11, weight="bold")
+    frekans_tamam = abs(r["f"] - HEDEF_FREKANS) * 1000 <= 20
+    sonuc = [["Rezonans frekansı", f"{r['f']*1000:.0f} ± {r['f_std']*1000:.0f} MHz"],
+             ["Minimum S11", f"{r['s']:.1f} ± {r['s_std']:.1f} dB"],
+             ["2.4 GHz ±20 MHz hedefi", "sağlanıyor" if frekans_tamam else "sağlanmıyor"],
+             ["S11 ≤ −10 dB", "sağlanıyor" if r["s"] <= HEDEF_S11 else "sağlanmıyor"],
+             ["Güvenilirlik", guven_metni.replace("Güvenilirlik: ", "").split(" (")[0]]]
+    tb2 = ax_s.table(cellText=sonuc, colWidths=[0.6, 0.4], loc="upper left", cellLoc="left")
+    tb2.auto_set_font_size(False); tb2.set_fontsize(9); tb2.scale(1, 1.5)
+    for h in tb2.get_celld().values():
+        h.set_edgecolor("#cccccc")
+
+    ax_g = fig.add_axes([0.10, 0.28, 0.84, 0.36])
+    egri_grafigi(r, egri_ref, ax=ax_g)
+    ax_g.set_title("Tahmin edilen S11 eğrisi", fontsize=11, weight="bold", loc="left")
+
+    fig.text(0.08, 0.14, f"Veri setindeki en yakın antene uzaklık: {r['uzaklik']:.2f} (tipik komşu uzaklığı {komsu_tipik:.2f}).",
+             fontsize=8.5)
+    fig.text(0.08, 0.115, "Not: Tahminler modelin çıktısıdır, simülatör veya ölçümle doğrulanmamıştır. ± değerleri GP belirsizliğidir;",
+             fontsize=8, color="#555555")
+    fig.text(0.08, 0.098, "veri setinden uzak ölçülerde güvenilirlik düşer. Kaynak veri: Mersani vd., Zenodo, 2.4 GHz slotlu patch anten seti.",
+             fontsize=8, color="#555555")
+    tampon = io.BytesIO()
+    fig.savefig(tampon, format="pdf")
+    plt.close(fig)
+    return tampon.getvalue()
+
+
+
+# ----------------------------------------------------------------------------
 # BOLUM 6: Arayuz
 # ----------------------------------------------------------------------------
 df = veri_yukle()
@@ -217,6 +287,18 @@ def adayi_yukle(satir):
 
 st.title("📡 2.4 GHz patch anten S11 tahmini")
 st.caption("Soldan anten ölçülerini ayarla; rezonans frekansı, S11 ve S11 eğrisi anında tahmin edilir.")
+
+# Yazdirirken (Ctrl+P) kenar cubugu, ust cubuk ve dugmeler gizlensin; sayfa A4'e duzgun otursun
+st.markdown("""<style>
+@media print {
+  @page { size: A4; margin: 12mm; }
+  [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"],
+  [data-testid="stSidebarCollapsedControl"], [data-testid="stDownloadButton"], .stButton, footer { display: none !important; }
+  .block-container { padding: 0 !important; max-width: 100% !important; }
+  [data-testid="stAppViewContainer"], .stApp { background: white !important; }
+}
+</style>""", unsafe_allow_html=True)
+
 
 with st.sidebar:
     st.header("Anten ölçüleri (mm)")
@@ -253,20 +335,12 @@ with d3:
 
 # Grafik: modelin tahmin ettigi S11 egrisi + referans olarak en yakin bilinen antenin gercek (CST) egrisi
 egri_ref = egriler[r["en_yakin"]]
-alt_sinir_egri = min(-30, r["egri"].min() - 2, egri_ref.min() - 2)
-fig, ax = plt.subplots(figsize=(8, 4.2))
-ax.plot(FREKANS_IZGARASI, egri_ref, color="#9aa3b2", lw=1.2, label="En yakın bilinen anten (CST, referans)")
-ax.plot(FREKANS_IZGARASI, r["egri"], color="#2e5597", lw=2, label="Tahmin edilen S11 eğrisi")
-ax.fill_between(FREKANS_IZGARASI, r["egri"], HEDEF_S11, where=r["egri"] < HEDEF_S11,
-                color="#2e5597", alpha=0.15, label="−10 dB altı bölge")
-ax.axvline(HEDEF_FREKANS, color="green", ls="--", lw=1, label="2.4 GHz")
-ax.axhline(HEDEF_S11, color="orange", ls="--", lw=1, label="−10 dB")
-ax.scatter([r["f"]], [r["s"]], color="red", zorder=5, label="Çukur tahmini")
-ax.set(xlabel="Frekans (GHz)", ylabel="S11 (dB)", ylim=(alt_sinir_egri, 1), xlim=(2.1, 2.7))
-ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=3, fontsize=8, frameon=False)
-fig.tight_layout()
+fig = egri_grafigi(r, egri_ref)
 st.pyplot(fig)
 plt.close(fig)
+
+st.download_button("📄 PDF raporunu indir", data=rapor_pdf(olculer, r, egri_ref, guven[1], komsu_tipik),
+                   file_name="anten_s11_tahmin_raporu.pdf", mime="application/pdf")
 
 # ---- Aday oner -------------------------------------------------------------
 st.divider()
@@ -276,7 +350,7 @@ if st.button("Aday ara"):
     st.session_state["adaylar"] = aday_ara(geo, olcekleyici, X, model_f, model_s)
 if "adaylar" in st.session_state:
     t = st.session_state["adaylar"]
-    st.dataframe(t.drop(columns="puan").round(2))
+    st.dataframe(t.drop(columns="puan").round(2).rename(index=lambda i: i + 1))  # numaralar 1'den başlasın
     sec = st.selectbox("Bir adayı yukarıda incelemek için seç", range(1, len(t) + 1))
     st.button("Seçilen adayı yükle", on_click=adayi_yukle, args=(t.iloc[sec - 1],))
 
